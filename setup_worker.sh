@@ -9,15 +9,21 @@ DISK_GB=$5
 AGENT_URL=$6
 
 echo "=========================================="
-echo "⚡ Installing LXD & Setting Up Node Agent"
+echo "⚡ Installing LXD, Cloudflared & Agent"
 echo "=========================================="
 
 export DEBIAN_FRONTEND=noninteractive
 apt update -y
 apt install -y curl python3 python3-pip python3-venv snapd
 
+# Setup LXD
 snap install lxd --channel=latest/stable || true
 lxd init --auto || true
+
+# Install cloudflared for secure tunnel routing
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+dpkg -i cloudflared.deb || apt-get install -f -y
+rm cloudflared.deb
 
 mkdir -p /opt/node_agent
 cd /opt/node_agent
