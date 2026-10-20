@@ -41,7 +41,8 @@ def create_container(req: ContainerReq, x_node_token: str = Header(...)):
     return {"status": "created", "ram": ram}
 EOF
 
-pip3 install fastapi uvicorn pylxd requests
+# FIXED: Added --break-system-packages to allow global installation on Ubuntu 24.04
+pip3 install fastapi uvicorn pylxd requests --break-system-packages
 
 # 3. Service Daemon Setup
 cat << EOF > /etc/systemd/system/node-agent.service
