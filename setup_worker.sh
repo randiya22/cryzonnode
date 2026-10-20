@@ -10,14 +10,23 @@ echo "=========================================="
 echo "⚡ Installing LXD & Setting Up Node Agent"
 echo "=========================================="
 
-# 1. Install Snap & LXD
-sudo apt update -y
-sudo apt install -y curl python3 python3-pip snapd
-sudo snap install lxd --channel=latest/stable
-sudo lxd init --auto
+# 1. Update Packages & Install Dependencies + Python venv
+export DEBIAN_FRONTEND=noninteractive
+apt update -y
+apt install -y curl python3 python3-pip python3-venv snapd
 
-# 2. Setup Node Agent REST API
+# Setup LXD
+snap install lxd --channel=latest/stable || true
+lxd init --auto || true
+
+# 2. Setup Node Agent inside an isolated Virtual Environment
 mkdir -p /opt/node_agent
+cd /opt/node_agent
+
+python3 -m venv venv
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install fastapi uvicorn pylxd requests
+
 cat << 'EOF' > /opt/node_agent/agent.py
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
@@ -41,10 +50,7 @@ def create_container(req: ContainerReq, x_node_token: str = Header(...)):
     return {"status": "created", "ram": ram}
 EOF
 
-# FIXED: Added --break-system-packages to allow global installation on Ubuntu 24.04
-pip3 install fastapi uvicorn pylxd requests --break-system-packages
-
-# 3. Service Daemon Setup
+# 3. Systemd Service targeting the Virtual Environment uvicorn
 cat << EOF > /etc/systemd/system/node-agent.service
 [Unit]
 Description=LXC Node Agent Service
@@ -52,7 +58,7 @@ After=network.target
 
 [Service]
 Environment=NODE_SECRET=$NODE_SECRET
-ExecStart=/usr/local/bin/uvicorn agent:app --host 0.0.0.0 --port 9090
+ExecStart=/opt/node_agent/venv/bin/uvicorn agent:app --host 0.0.0.0 --port 9090
 WorkingDirectory=/opt/node_agent
 Restart=always
 
@@ -63,11 +69,11 @@ EOF
 systemctl daemon-reload
 systemctl enable --now node-agent
 
-# Get Public IP of this worker node
-WORKER_IP=$(curl -s https://api.ipify.org)
+# Get Public IP of worker node
+WORKER_IP=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
 
-# 4. Ping Back to Master Cloudflare Gateway (botnode.cryzoncloud.fun)
-curl -X POST "$MASTER_DOMAIN/register_node" \
+# 4. Callback to Master Gateway
+curl -s -X POST "$MASTER_DOMAIN/register_node" \
      -H "Content-Type: application/json" \
      -d "{\"node_name\": \"$NODE_NAME\", \"one_time_token\": \"$ONE_TIME_TOKEN\", \"node_agent_url\": \"http://$WORKER_IP:9090\", \"node_secret_token\": \"$NODE_SECRET\"}"
 
